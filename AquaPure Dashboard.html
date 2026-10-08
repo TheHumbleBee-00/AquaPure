@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AquaPure Dashboard</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#eef6fb;--card:#ffffff;--ink:#0b2a43;--mut:#5b7488;--line:#d3e3ee;--brand:#00598f;--safe:#2e9e4f;--warn:#f08c00;--bad:#e03131}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#061a2b;--card:#0c2b45;--ink:#e8f3fb;--mut:#8fb0c7;--line:#1b4565;--brand:#5bb8f0}}
+:root[data-theme="dark"]{--bg:#061a2b;--card:#0c2b45;--ink:#e8f3fb;--mut:#8fb0c7;--line:#1b4565;--brand:#5bb8f0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",system-ui,-apple-system,Helvetica,Arial,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+h1{margin:0;font-size:26px;color:var(--brand);letter-spacing:1px}
+.sub{color:var(--mut);font-size:13px}
+.grid{display:grid;gap:12px}
+.top{grid-template-columns:1.2fr repeat(4,1fr)}
+.charts{grid-template-columns:repeat(2,1fr);margin-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.lbl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.8px}
+.val{font-size:30px;font-weight:700;margin-top:4px}
+.val small{font-size:14px;color:var(--mut);font-weight:500}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--mut)}
+.verdict{display:flex;flex-direction:column;justify-content:center;color:#fff;transition:background .3s}
+.verdict .val{font-size:38px;letter-spacing:1px}
+canvas{width:100%;height:170px;display:block}
+.strip{display:flex;gap:3px;margin-top:8px;overflow:hidden}
+.strip i{flex:1;min-width:6px;height:22px;border-radius:3px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+button.alt{background:transparent;color:var(--brand);border:1px solid var(--brand)}
+textarea{width:100%;height:90px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:8px;font-family:Consolas,monospace;font-size:12px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:600}
+.pill{padding:2px 8px;border-radius:99px;color:#fff;font-size:12px}
+.legend{font-size:12px;color:var(--mut);margin-top:6px}
+@media(max-width:800px){.top{grid-template-columns:1fr 1fr}.verdict{grid-column:1/-1}.charts{grid-template-columns:1fr}}
+</style></head>
+<body><div class="wrap">
+<header>
+ <div><h1>AQUAPURE</h1><div class="sub">Smart water quality monitoring dashboard · ESP32 telemetry</div></div>
+ <div class="sub" id="status">No data yet. Paste serial output or start the demo.</div>
+</header>
+
+<div class="grid top">
+ <div class="card verdict" id="vcard" style="background:var(--mut)"><div class="lbl" style="color:#ffffffcc">Latest verdict</div><div class="val" id="vtxt">--</div><div id="vsub" style="font-size:13px;opacity:.9">waiting for readings</div></div>
+ <div class="card"><div class="lbl"><span class="dot" id="d-ph"></span>pH</div><div class="val" id="v-ph">--</div><div class="sub">safe 6.5 to 8.5</div></div>
+ <div class="card"><div class="lbl"><span class="dot" id="d-tds"></span>TDS</div><div class="val" id="v-tds">--<small> ppm</small></div><div class="sub">safe up to 500</div></div>
+ <div class="card"><div class="lbl"><span class="dot" id="d-ntu"></span>Turbidity</div><div class="val" id="v-ntu">--<small> NTU</small></div><div class="sub">safe up to 5</div></div>
+ <div class="card"><div class="lbl"><span class="dot" id="d-temp"></span>Temperature</div><div class="val" id="v-temp">--<small> °C</small></div><div class="sub">DS18B20</div></div>
+</div>
+
+<div class="card" style="margin-top:12px">
+ <div class="lbl">Verdict history (oldest to newest)</div>
+ <div class="strip" id="strip"></div>
+ <div class="legend" id="counts">0 readings</div>
+</div>
+
+<div class="grid charts">
+ <div class="card"><div class="lbl">pH over time</div><canvas id="c-ph"></canvas></div>
+ <div class="card"><div class="lbl">TDS (ppm) over time</div><canvas id="c-tds"></canvas></div>
+ <div class="card"><div class="lbl">Turbidity (NTU) over time</div><canvas id="c-ntu"></canvas></div>
+ <div class="card"><div class="lbl">Temperature (°C) over time</div><canvas id="c-temp"></canvas></div>
+</div>
+<div class="legend">Green band = safe range · dashed lines = severe limits that force UNSAFE · dot colour = verdict at that reading</div>
+
+<div class="card" style="margin-top:12px">
+ <div class="lbl">Data source</div>
+ <textarea id="inp" placeholder='Paste the Wokwi Serial Monitor output here, e.g. {"pH":7.1,"TDS":190,"Turbidity":1.0,"Temp":22.0,"Verdict":"SAFE"}'></textarea>
+ <div class="row">
+  <button id="load">Load pasted data</button>
+  <button class="alt" id="demo">Start demo stream</button>
+  <button class="alt" id="clear">Clear</button>
+ </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+ <div class="lbl">Recent readings</div>
+ <div class="tw"><table><thead><tr><th>#</th><th>pH</th><th>TDS</th><th>NTU</th><th>Temp</th><th>Verdict</th></tr></thead><tbody id="tb"></tbody></table></div>
+</div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const L=['SAFE','CAUTION','UNSAFE'],CV=['--safe','--warn','--bad'];
+let rows=[],timer=null,tick=0;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function verdict(p,t,n){const b=(p<6.5||p>8.5)+(t>500)+(n>5);const s=p<6||p>9||t>900||n>10;return(b>=2||s)?2:b==1?1:0}
+function sPh(p){return(p>=6.5&&p<=8.5)?0:(p<6||p>9)?2:1}
+function sTds(t){return t<=500?0:t<=900?1:2}
+function sNtu(n){return n<=5?0:n<=10?1:2}
+
+function parse(text){
+ let c=0;
+ text.split('\n').forEach(l=>{
+  const m=l.match(/\{.*\}/);if(!m)return;
+  try{const j=JSON.parse(m[0]);if(j.pH==null)return;
+   const ph=+j.pH,tds=+j.TDS,ntu=+j.Turbidity;let temp=+j.Temp;if(temp<-100)temp=NaN;
+   let v=L.indexOf(j.Verdict);if(v<0)v=verdict(ph,tds,ntu);
+   rows.push({ph,tds,ntu,temp,v});c++}catch(e){}
+ });
+ return c;
+}
+
+function chart(id,key,o){
+ const cv=$('#'+id),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+ cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);
+ const pl=34,pr=8,pt=8,pb=8,iw=w-pl-pr,ih=h-pt-pb;
+ const y=v=>pt+ih-(Math.min(Math.max(v,o.min),o.max)-o.min)/(o.max-o.min)*ih;
+ g.font='11px sans-serif';g.fillStyle=css('--mut');g.strokeStyle=css('--line');g.lineWidth=1;
+ [o.min,(o.min+o.max)/2,o.max].forEach(v=>{g.beginPath();g.moveTo(pl,y(v));g.lineTo(w-pr,y(v));g.stroke();g.fillText(v,2,y(v)+4)});
+ if(o.lo!=null){g.fillStyle=css('--safe')+'26';g.fillRect(pl,y(o.hi),iw,y(o.lo)-y(o.hi))}
+ g.setLineDash([5,4]);g.strokeStyle=css('--bad');
+ (o.sev||[]).forEach(v=>{g.beginPath();g.moveTo(pl,y(v));g.lineTo(w-pr,y(v));g.stroke()});
+ g.setLineDash([]);
+ const d=rows.slice(-60),n=d.length;if(!n)return;
+ const x=i=>pl+(n>1?i/(n-1):.5)*iw;
+ g.strokeStyle=css('--brand');g.lineWidth=2;g.beginPath();let st=false;
+ d.forEach((r,i)=>{const v=r[key];if(isNaN(v))return;st?g.lineTo(x(i),y(v)):g.moveTo(x(i),y(v));st=true});g.stroke();
+ d.forEach((r,i)=>{if(isNaN(r[key]))return;g.fillStyle=css(CV[r.v]);g.beginPath();g.arc(x(i),y(r[key]),3.5,0,7);g.fill()});
+}
+
+function render(){
+ const n=rows.length,r=rows[n-1];
+ if(r){
+  $('#vcard').style.background=css(CV[r.v]);$('#vtxt').textContent=L[r.v];
+  $('#vsub').textContent=r.v==2?'Do not drink. Buzzer ON':r.v==1?'Treat or retest before use':'Within all safe limits';
+  $('#v-ph').textContent=r.ph.toFixed(1);
+  $('#v-tds').innerHTML=Math.round(r.tds)+'<small> ppm</small>';
+  $('#v-ntu').innerHTML=r.ntu.toFixed(1)+'<small> NTU</small>';
+  $('#v-temp').innerHTML=(isNaN(r.temp)?'--':r.temp.toFixed(1))+'<small> °C</small>';
+  const s={ph:sPh(r.ph),tds:sTds(r.tds),ntu:sNtu(r.ntu),temp:0};
+  for(const k in s)$('#d-'+k).style.background=css(CV[s[k]]);
+  $('#status').textContent=n+' readings loaded';
+ }
+ chart('c-ph','ph',{min:0,max:14,lo:6.5,hi:8.5,sev:[6,9]});
+ chart('c-tds','tds',{min:0,max:1000,lo:0,hi:500,sev:[900]});
+ chart('c-ntu','ntu',{min:0,max:20,lo:0,hi:5,sev:[10]});
+ chart('c-temp','temp',{min:0,max:50});
+ $('#strip').innerHTML=rows.slice(-60).map(q=>'<i style="background:'+css(CV[q.v])+'"></i>').join('');
+ const c=[0,0,0];rows.forEach(q=>c[q.v]++);
+ $('#counts').textContent=n+' readings · '+c[0]+' safe · '+c[1]+' caution · '+c[2]+' unsafe';
+ $('#tb').innerHTML=rows.slice(-8).reverse().map((q,i)=>'<tr><td>'+(n-i)+'</td><td>'+q.ph.toFixed(1)+'</td><td>'+Math.round(q.tds)+'</td><td>'+q.ntu.toFixed(1)+'</td><td>'+(isNaN(q.temp)?'--':q.temp.toFixed(1))+'</td><td><span class="pill" style="background:'+css(CV[q.v])+'">'+L[q.v]+'</span></td></tr>').join('');
+}
+
+const W=[[7.1,190,1],[7.2,240,1.5],[7.0,680,2],[4.2,820,12],[4.5,800,11],[7.1,210,1.2]];
+function gen(i){
+ const m=i%40,sg=Math.floor(m/8),f=(m%8)/8,a=W[sg],b=W[sg+1];
+ const ip=k=>a[k]+(b[k]-a[k])*f,nz=s=>(Math.random()-.5)*s;
+ const ph=ip(0)+nz(.2),tds=ip(1)+nz(30),ntu=Math.max(.2,ip(2)+nz(.5));
+ return{ph,tds,ntu,temp:22+nz(1.2),v:verdict(ph,tds,ntu)};
+}
+
+$('#load').onclick=()=>{const c=parse($('#inp').value);$('#status').textContent=c?c+' readings parsed':'No valid JSON lines found';render()};
+$('#demo').onclick=()=>{
+ if(timer){clearInterval(timer);timer=null;$('#demo').textContent='Start demo stream';return}
+ $('#demo').textContent='Stop demo';
+ timer=setInterval(()=>{rows.push(gen(tick++));render()},700);
+};
+$('#clear').onclick=()=>{rows=[];tick=0;$('#inp').value='';$('#vtxt').textContent='--';$('#vcard').style.background=css('--mut');$('#status').textContent='Cleared';render()};
+window.addEventListener('resize',render);
+render();
+</script></body></html>
